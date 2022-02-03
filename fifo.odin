@@ -16,16 +16,19 @@ Fifo :: struct($T: typeid) {
 	is_open: bool,
 }
 
-new_fifo :: proc($T: typeid, n: u16) -> ^Fifo(T) {
+new_fifo :: proc($T: typeid, n: u16 = 0) -> ^Fifo(T) {
 	new_fifo := new(Fifo(T))
 	new_fifo^ = make_fifo(T, n)
 	return new_fifo
 }
 
-make_fifo :: proc($T: typeid, n: u16) -> Fifo(T) {
+make_fifo :: proc($T: typeid, n: u16 = 0) -> Fifo(T) {
 	new_fifo := Fifo(T) {
-		buf = make([]T, n),
 		is_open = true,
+	}
+	/* If 0, make sure you initialize this later... */
+	if n != 0 {
+		new_fifo.buf = make([]T, n)
 	}
 	sync.mutex_init(&new_fifo.mutex_head)
 	sync.mutex_init(&new_fifo.mutex_tail)
@@ -40,6 +43,14 @@ destroy :: proc(f: ^Fifo($T)) {
 	sync.mutex_destroy(&f.mutex_tail)
 	sync.condition_destroy(&f.cond_add)
 	sync.condition_destroy(&f.cond_get)
+}
+
+set_size :: proc(f: ^Fifo($T), n: u16 = 0) {
+	n := n
+	if n < 2 {
+		n = 2
+	}
+	f.buf = make([]T, n)
 }
 
 reset :: proc(f: ^Fifo($T)) {
