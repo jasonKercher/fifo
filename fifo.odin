@@ -3,16 +3,14 @@ package fifo
 import "core:sys/unix"
 import "core:sync"
 
-// TODO: needs re-write or outright elimination.
-//       sync.signal doubles the locking
 
 Fifo :: struct($T: typeid) {
 	buf: []T,
 	shared_mutex_fifo: ^Fifo(T),
 	mutex_head: sync.Mutex,
 	mutex_tail: sync.Mutex,
-	cond_add: sync.Condition,
-	cond_get: sync.Condition,
+	cond_add: sync.Cond,
+	cond_get: sync.Cond,
 	head: u16,
 	tail: u16,
 	_iter_head: u16,
@@ -34,19 +32,11 @@ make_fifo :: proc($T: typeid, n: u16 = 0) -> Fifo(T) {
 	if n != 0 {
 		new_fifo.buf = make([]T, n)
 	}
-	sync.mutex_init(&new_fifo.mutex_head)
-	sync.mutex_init(&new_fifo.mutex_tail)
-	sync.condition_init(&new_fifo.cond_add, &new_fifo.mutex_head)
-	sync.condition_init(&new_fifo.cond_get, &new_fifo.mutex_tail)
 	return new_fifo
 }
 
 destroy :: proc(f: ^Fifo($T)) {
 	delete(f.buf)
-	sync.mutex_destroy(&f.mutex_head)
-	sync.mutex_destroy(&f.mutex_tail)
-	sync.condition_destroy(&f.cond_add)
-	sync.condition_destroy(&f.cond_get)
 }
 
 set_size :: proc(f: ^Fifo($T), n: u16 = 0) {
@@ -73,11 +63,11 @@ set_open :: proc(f: ^Fifo($T), is_open: bool) {
 	sync.mutex_lock(&f.mutex_head)
 
 	f.is_open = is_open
-	sync.condition_broadcast(&f.cond_add)
-	sync.condition_broadcast(&f.cond_get)
+	sync.cond_broadcast(&f.cond_add)
+	sync.cond_broadcast(&f.cond_get)
 	if f.shared_mutex_fifo != nil {
 		sync.mutex_lock(&f.shared_mutex_fifo.mutex_head)
-		sync.condition_broadcast(&f.shared_mutex_fifo.cond_add)
+		sync.cond_broadcast(&f.shared_mutex_fifo.cond_add)
 		sync.mutex_unlock(&f.shared_mutex_fifo.mutex_head)
 		f.shared_mutex_fifo = nil
 	}
