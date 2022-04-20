@@ -3,6 +3,9 @@ package fifo
 import "core:sys/unix"
 import "core:sync"
 
+// TODO: needs re-write or outright elimination.
+//       sync.signal doubles the locking
+
 Fifo :: struct($T: typeid) {
 	buf: []T,
 	shared_mutex_fifo: ^Fifo(T),
@@ -123,24 +126,22 @@ peek :: proc(f: ^Fifo($T)) -> T {
 }
 
 update :: proc(f: ^Fifo($T)) {
-	sync.mutex_lock(&f.mutex_tail)
-	_cond_signal(&f.cond_get)
-	sync.mutex_unlock(&f.mutex_tail)
+	sync.signal(&f.cond_get)
 }
 
 /* basically get without the get part */
 consume :: proc(f: ^Fifo($T)) {
 	sync.mutex_lock(&f.mutex_tail)
 	_idx_adv(f, &f.tail)
-	_cond_signal(&f.cond_get)
 	sync.mutex_unlock(&f.mutex_tail)
+	sync.signal(&f.cond_get)
 }
 get :: proc(f: ^Fifo($T)) -> ^T {
 	sync.mutex_lock(&f.mutex_tail)
 	data := peek(f)
 	_idx_adv(f, &f.tail)
-	_cond_signal(&f.cond_get)
 	sync.mutex_unlock(&f.mutex_tail)
+	sync.signal(&f.cond_get)
 	return data
 }
 
@@ -148,28 +149,18 @@ get :: proc(f: ^Fifo($T)) -> ^T {
 advance :: proc(f: ^Fifo($T)) {
 	sync.mutex_lock(&f.mutex_head)
 	_idx_adv(f, &f.head)
-	_cond_signal(&f.cond_add)
 	sync.mutex_unlock(&f.mutex_head)
+	sync.signal(&f.cond_add)
 }
 add :: proc(f: ^Fifo($T), data: T) {
 	sync.mutex_lock(&f.mutex_head)
 	f.buf[f.head] = data
 	_idx_adv(f, &f.head)
-	_cond_signal(&f.cond_add)
 	sync.mutex_unlock(&f.mutex_head)
+	sync.signal(&f.cond_add)
 }
 
 @(private = "file")
 _idx_adv :: proc(f: ^Fifo($T), idx: ^u16) {
 	idx^ = (idx^ + 1) % u16(len(f.buf))
-}
-
-/* sync.condition_signal does locking internally.
- * This version does not. The proper locks are
- * assumed to be locked.
- */
-@(private = "file")
-_cond_signal :: proc(c: ^sync.Condition) -> bool {
-	sync.atomic_swap(&c.flag, true, .Sequentially_Consistent)
-	return unix.pthread_cond_signal(&c.handle) == 0
 }
